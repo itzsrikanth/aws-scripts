@@ -29,7 +29,7 @@ if (filename) {
                 action: argv.a,
                 tableName: argv.t
             });
-            if(Array.isArray(resp)) {
+            if (Array.isArray(resp)) {
                 writeBack(
                     resp, argv.o
                 );
@@ -63,7 +63,7 @@ if (filename) {
 const writeBack = (returnData, output) => {
     if (output) {
         let i;
-        for(i = 0; i < returnData.length; ++i) {
+        for (i = 0; i < returnData.length; ++i) {
             const fileNameRegex = /\.(?=\w*$)/;
             const outputName = fileNameRegex.test(output) ? output.replace(fileNameRegex, `_${i}.`) : `${output}_${i}`;
             fs.writeFile(outputName, JSON.stringify(returnData[i]), err => {
@@ -90,31 +90,28 @@ const conv = (json, {
     tableName
 }) => {
     const parsed = JSON.parse(json);
-    switch(action) {
-        case 'PUT': action = 'PutRequest';  break;
-        default:    action = null;          break;
+    switch (action) {
+        case 'PUT': action = 'PutRequest'; break;
+        default: action = null; break;
     }
     if (Array.isArray(parsed)) {
-        let i, j, index, tmp, 
+        let i, j, index = 0, tmp,
             convertedValue,
             result = [];
         const count = splits || parsed.length;
-        for(i = 0; i < Math.ceil(parsed.length / count); ++i) {
-            result.push([]);
-        }
         try {
-            for (i = 0; i < parsed.length; ++i) {
-                index = Math.floor(i / count);
-                for (j = 0; j < count; j++) {
-                    convertedValue = AWS.DynamoDB.Converter[order](parsed[i]);
+            for (i = 0; i < Math.ceil(parsed.length / count); ++i) {
+                result.push([]);
+                for (j = 0; j < count && index < parsed.length; ++j, ++index) {
+                    convertedValue = AWS.DynamoDB.Converter[order](parsed[index]);
                     if (action) {
                         tmp = {};
                         tmp[action] = {
                             Item: convertedValue
                         };
-                        result[index][j] = tmp;
+                        result[i].push(tmp);
                     } else {
-                        result[index][j] = convertedValue;
+                        result[i].push(convertedValue);
                     }
                 }
             }
