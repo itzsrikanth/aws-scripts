@@ -7,6 +7,12 @@ const AWS = require('aws-sdk');
  * i -> input file  (default -> stdin)
  * o -> output file (default -> stdout)
  * r -> reverse
+ * s -> no of objects per file
+ * t -> table name
+ * a -> action (PUT)
+ */
+/**
+ * Usage:- node marshaller.js -i input.json -o output.json -s 25 -t tableName -a PUT
  */
 const argv = require('yargs').argv;
 
@@ -18,9 +24,16 @@ if (filename) {
             console.error(err);
             process.exit(2);
         } else {
-            writeBack(
-                conv(json), argv.o
-            );
+            const resp = conv(json, {
+                splits: argv.s || 1,
+                action: argv.a,
+                tableName: argv.t
+            });
+            if(Array.isArray(resp)) {
+                writeBack(
+                    resp, argv.o
+                );
+            }
         }
     });
 } else {
@@ -31,8 +44,13 @@ if (filename) {
         input += chunk;
     })
     process.stdin.on('end', () => {
+        const resp = conv(input, {
+            splits: argv.s || 1,
+            action: argv.a,
+            tableName: argv.t
+        });
         writeBack(
-            conv(input), argv.o
+            resp, argv.o
         );
     })
 }
@@ -44,40 +62,77 @@ if (filename) {
  */
 const writeBack = (returnData, output) => {
     if (output) {
-        fs.writeFile(output, returnData, err => {
-            if (err) {
-                process.exit(4);
-            } else {
-                console.log('Marshall success');
-            }
-        })
+        let i;
+        for(i = 0; i < returnData.length; ++i) {
+            const fileNameRegex = /\.(?=\w*$)/;
+            const outputName = fileNameRegex.test(output) ? output.replace(fileNameRegex, `_${i}.`) : `${output}_${i}`;
+            fs.writeFile(outputName, JSON.stringify(returnData[i]), err => {
+                if (err) {
+                    process.exit(4);
+                } else {
+                    console.log('Marshall success');
+                }
+            })
+        }
     } else {
-        console.log(returnData);
+        console.log(JSON.stringify(returnData));
     }
 }
 
 /**
  * 
  * @param {string} json: Stringified JSON data
+ * @param {object} config: conversion configuration settings
  */
-const conv = json => {
+const conv = (json, {
+    splits,
+    action,
+    tableName
+}) => {
     const parsed = JSON.parse(json);
+    switch(action) {
+        case 'PUT': action = 'PutRequest';  break;
+        default:    action = null;          break;
+    }
     if (Array.isArray(parsed)) {
-        let i;
+        let i, j, index, tmp, 
+            convertedValue,
+            result = [];
+        const count = splits || parsed.length;
+        for(i = 0; i < Math.ceil(parsed.length / count); ++i) {
+            result.push([]);
+        }
         try {
             for (i = 0; i < parsed.length; ++i) {
-                parsed[i] = AWS.DynamoDB.Converter[order](parsed[i]);
+                index = Math.floor(i / count);
+                for (j = 0; j < count; j++) {
+                    convertedValue = AWS.DynamoDB.Converter[order](parsed[i]);
+                    if (action) {
+                        tmp = {};
+                        tmp[action] = {
+                            Item: convertedValue
+                        };
+                        result[index][j] = tmp;
+                    } else {
+                        result[index][j] = convertedValue;
+                    }
+                }
             }
-            return JSON.stringify(parsed);
+            if (tableName) {
+                result = result.map(res => {
+                    tmp = {};
+                    tmp[tableName] = res;
+                    return tmp;
+                });
+            }
+            return splits ? result : result[0];
         } catch (e) {
             console.error(e);
             process.exit(8);
         }
     } else {
         try {
-            return JSON.stringify(
-                AWS.DynamoDB.Converter[order](parsed)
-            );
+            return AWS.DynamoDB.Converter[order](parsed);
         } catch (e) {
             console.error(e);
             process.exit(8);
